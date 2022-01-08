@@ -11,7 +11,7 @@ void setupADC() {
   PMC->PMC_PCER1 |= PMC_PCER1_PID37;
   ADC->ADC_CR = ADC_CR_SWRST;
 
-  ADC->ADC_MR |= ADC_MR_ANACH_ALLOWED | ADC_MR_LOWRES_BITS_12 | ADC_MR_STARTUP_SUT24; // separate channels + 12bit + delay for startup for enable->disable->enable...
+  ADC->ADC_MR |= ADC_MR_ANACH_ALLOWED | ADC_MR_LOWRES_BITS_12 | ADC_MR_STARTUP_SUT64; // separate channels + 12bit + delay for startup for enable->disable->enable...
   ADC->ADC_COR = ADC_COR_DIFF4 | ADC_COR_DIFF5 | ADC_COR_OFF4 | ADC_COR_OFF5 | 
                   ADC_COR_DIFF6 | ADC_COR_DIFF7 | ADC_COR_OFF6 | ADC_COR_OFF7; // enable differential for channels and 0.5 offsets
 
@@ -62,12 +62,7 @@ void setup() {
   Serial.println("begin");
 }
 
-int ocv_prev = 0;
-int ocv = 0;
-int cur_prev = 0;
-int cur = 0;
-int phaseCHARGE() {
-  int start = millis();
+int phaseCHARGE(int ocv, int us, int* vdc) {
   pinMode(7, OUTPUT);
   pinMode(6, OUTPUT);
   if (ocv > adcSetpoint) {
@@ -77,53 +72,70 @@ int phaseCHARGE() {
     digitalWrite(7, HIGH);
     digitalWrite(6, LOW);
   }
-  delay(5);
+  delayMicroseconds(us);
 
-  ADC->ADC_CHER |= ADC_CHER_CH6 | ADC_CHER_CH7;
+  ADC->ADC_CHER |= ADC_CHER_CH4 | ADC_CHER_CH5 | ADC_CHER_CH6 | ADC_CHER_CH7;
   triggerADC();
-  while(!(ADC->ADC_ISR & ADC_ISR_EOC6)) {
-  }
-  cur_prev = cur;
-  cur = ADC->ADC_CDR[6];
-  ADC->ADC_CHDR |= ADC_CHDR_CH6 | ADC_CHDR_CH7;
+  while(!(ADC->ADC_ISR & ADC_ISR_EOC6));
+  ADC->ADC_CHDR |= ADC_CHDR_CH4 | ADC_CHDR_CH5 | ADC_CHDR_CH6 | ADC_CHDR_CH7;
+  // while(!(ADC->ADC_ISR & ADC_ISR_EOC4));
+  *vdc = ADC->ADC_CDR[4];
 
   pinMode(7, INPUT);
   pinMode(6, INPUT);
-  return millis() - start;
+  return ADC->ADC_CDR[6];
 }
 
 int phaseOPEN() {
   ADC->ADC_CHER |= ADC_CHER_CH4 | ADC_CHER_CH5;
 
   triggerADC();
-  while(!(ADC->ADC_ISR & ADC_ISR_EOC4)) {
-  }
-
-  ocv_prev = ocv;
-  ocv = ADC->ADC_CDR[4];
+  while(!(ADC->ADC_ISR & ADC_ISR_EOC4));
 
   ADC->ADC_CHDR |= ADC_CHDR_CH4 | ADC_CHDR_CH5;
-  return ocv;
+  return ADC->ADC_CDR[4];
 }
 
-void measurePARAM() {
-  adcSetpoint = VtoADC(1);
-  int ocvs = phaseOPEN();
-  int dt = phaseCHARGE();
-  int vd = cur;
-  int ocve = phaseOPEN();
 
-  float vend = 3.3f - ADCtoV(ocve);
-  float resistance = vend / ADCtoV(vd) * 1000;
+float phaseOPENc(int count) {
+  volatile int sum = 0;
 
-  float x1 = (ADCtoV(ocvs) - ADCtoV(ocve)) / (3.3f - ADCtoV(ocvs));
-  float x2 = log(1/(1-x1));
-  float x3 = dt / x2;
-  float x4 = x3 / resistance * 1000;
-  Serial.println((String)"ocvs=" + ocvs + ",dt=" + dt + ",vd=" + vd + ",ocve=" + ocve);
-  Serial.println((String)"r=" + resistance + ",x1=" + x1 + ",x2=" + x2 + ",x3=" + x3 + ",x4=" + x4);
-  Serial.println("---");
+  ADC->ADC_CHER |= ADC_CHER_CH4 | ADC_CHER_CH5;
+
+  for (volatile int i = 0; i < count; i++) {
+      triggerADC();
+      while(!(ADC->ADC_ISR & ADC_ISR_EOC4)) {
+        asm volatile("nop");
+      }
+      // delay(1);
+      // Serial.println((String)"c=" + count + ",n=" + n);
+      sum += ADC->ADC_CDR[4];
+  }
+
+  ADC->ADC_CHDR |= ADC_CHDR_CH4 | ADC_CHDR_CH5;
+
+  return (float)sum / count;
 }
+
+
+// void measurePARAM() {
+//   adcSetpoint = VtoADC(1);
+//   int ocvs = phaseOPEN();
+//   int dt = phaseCHARGE();
+//   int vd = cur;
+//   int ocve = phaseOPEN();
+
+//   float vend = 3.3f - ADCtoV(ocve);
+//   float resistance = vend / ADCtoV(vd) * 1000;
+
+//   float x1 = (ADCtoV(ocvs) - ADCtoV(ocve)) / (3.3f - ADCtoV(ocvs));
+//   float x2 = log(1/(1-x1));
+//   float x3 = dt / x2;
+//   float x4 = x3 / resistance * 1000;
+//   Serial.println((String)"ocvs=" + ocvs + ",dt=" + dt + ",vd=" + vd + ",ocve=" + ocve);
+//   Serial.println((String)"r=" + resistance + ",x1=" + x1 + ",x2=" + x2 + ",x3=" + x3 + ",x4=" + x4);
+//   Serial.println("---");
+// }
 
 void loop() {
   // put your main code here, to run repeatedly:
@@ -145,15 +157,31 @@ void loop() {
     adcSetpoint = VtoADC(num);
   }
 
+  #define VOUT 3.3f
+  #define R_SHUNT 1000
+  int vdc = 0;
+  float shunt_voltage_drop = abs(ADCtoV(phaseCHARGE(phaseOPEN(), 1, &vdc)));
+  float r_int = (VOUT - (shunt_voltage_drop + abs(ADCtoV(vdc)))) / shunt_voltage_drop * 1000;
+  // Serial.println((String)"shunt=" + shunt_voltage_drop + ", cap=" + ADCtoV(vdc));
+  Serial.println((String)"" + r_int + "," + shunt_voltage_drop + "," + abs(ADCtoV(vdc)));
   // measurePARAM();
-  phaseOPEN();
-  phaseCHARGE();
+  // phaseOPEN();
+  // phaseCHARGE();
+  // int ocv = 0; //phaseOPEN();
+  // int voltdropshunt = phaseCHARGE(4000, 1000);
+  // Serial.println((String)"" + ADCtoV(ocv) + "," + ADCtoV(voltdropshunt));
   
+  // float a = phaseOPENc(1);
+  // float b = phaseOPENc(10);
+  // float c = phaseOPENc(100);
+  // float d = phaseOPENc(1000);
+  // Serial.println((String)"a=" + a + "b=" + b + "c=" + c + "d=" + d);
+  // Serial.println((String)"a=" + ADCtoV(a) + "b=" + ADCtoV(b) + "c=" + ADCtoV(c) + "d=" + ADCtoV(d));
 
   // Serial.println((String)"adc:" + adc + ", adcc:"+ADCtoV(adc));
   // Serial.println((String)"" + ADCtoV(ocv) + "V, " + ADCtoV(cur) + "mA");
   // Serial.println(ADCtoV(adc2));
-  delay(1000);
+  delay(1);
 }
 
 void ADC_Handler() {
