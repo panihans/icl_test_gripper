@@ -34,7 +34,7 @@ void setup_timer() {
   PMC->PMC_PCER0 |= PMC_PCER0_PID27;
 
   TC_Configure(TC0, 0, TC_CMR_TCCLKS_TIMER_CLOCK1 | TC_CMR_WAVSEL_UP | TC_CMR_WAVE);
-  TC_SetRC(TC0, 0, 42000);
+  TC_SetRC(TC0, 0, 42000); //1ms timer
   TC0->TC_CHANNEL[0].TC_IER = TC_IER_CPCS;
   NVIC_EnableIRQ(TC0_IRQn);
 }
@@ -45,7 +45,7 @@ void setup() {
   setup_timer();
   Serial.begin(115200);
   Serial.println("begin");
-  Serial.println((String)"load_open,shunt_open,load_high,shunt_high");
+  Serial.println((String)"millisekund, pinge, tehislihas avatud ahela pinge, shunt avatud ahela pinge, tehislihas laadimispinge, shunt laadimispinge");
 }
 
 #define CAN_READ_ADC_4 (ADC->ADC_ISR & ADC_ISR_EOC4)
@@ -61,29 +61,83 @@ void get_adc_readings(uint32_t& load, uint32_t& shunt) {
 #define VOUT 3.3f
 #define ADC_MAX 4095.f
 #define ADCtoV(adc) ((adc) / ADC_MAX * (VOUT * 2) - VOUT)
-#define VtoADC(v) ((uint32_t)(((v) / VOUT + 1) * (ADC_MAX / 2)))
+#define VtoADC(v) ((int32_t)(((v) / VOUT + 1) * (ADC_MAX / 2)))
 
 #define ADC_SET_MIN VtoADC(-1.29);
 #define ADC_SET_MAX VtoADC(1.29);
 #define ADC_SET_ZERO VtoADC(0);
-uint32_t adcSetpoint = ADC_SET_ZERO;
+int32_t adcSetpoint = ADC_SET_ZERO;
 
-void loop() {
-  // put your main code here, to run repeatedly:
-  while(Serial.available()) {
-    char c = Serial.read();
-    switch(c) {
-      case 'f': adcSetpoint = ADC_SET_MAX; break;
-      case 'r': adcSetpoint = ADC_SET_MIN; break;
-      case 'b': adcSetpoint = ADC_SET_ZERO; break;
+// void loop() {
+//   // put your main code here, to run repeatedly:
+//   while(Serial.available()) {
+//     char c = Serial.read();
+//     switch(c) {
+//       case 'f': adcSetpoint = ADC_SET_MAX; break;
+//       case 'r': adcSetpoint = ADC_SET_MIN; break;
+//       case 'b': adcSetpoint = ADC_SET_ZERO; break;
+//     }
+//   }
+//   COAST();
+//   TRIGGER_ADC();
+//   uint32_t load_open = -1;
+//   uint32_t shunt_open = -1;
+//   get_adc_readings(load_open, shunt_open);
+
+//   if (adcSetpoint == VtoADC(0)) {
+//     BRAKE();
+//   } else if (load_open < adcSetpoint) {
+//     FORWARD();
+//   } else if (load_open > adcSetpoint) {
+//     REVERSE();
+//   }
+//   TRIGGER_ADC();
+//   uint32_t load_high = -1;
+//   uint32_t shunt_high = -1;
+//   get_adc_readings(load_high, shunt_high);
+//   delay(1);
+//   COAST();
+
+//   Serial.println((String)"" + load_open + "," + shunt_open + "," + load_high + "," + shunt_high);
+//   delay(1000);
+// }
+
+
+enum charging_state {high, open_circuit};
+charging_state st = open_circuit;
+
+
+#define CLEAR_TC0_CH0_ISR() TC0->TC_CHANNEL[0].TC_SR
+void TC0_Handler() {
+  CLEAR_TC0_CH0_ISR();
+  COAST();
+  st = open_circuit;
+  TRIGGER_ADC();
+}
+
+int32_t load_open = -1;
+int32_t shunt_open = -1;
+int32_t load_high = -1;
+int32_t shunt_high = -1;
+void ADC_Handler() {
+  if (CAN_READ_ADC_4) {
+    if (st == open_circuit) {
+      load_open = ADC->ADC_CDR[4];
+    } else {
+      load_high = ADC->ADC_CDR[4];
     }
   }
-  COAST();
-  TRIGGER_ADC();
-  uint32_t load_open = -1;
-  uint32_t shunt_open = -1;
-  get_adc_readings(load_open, shunt_open);
+  if (CAN_READ_ADC_6) {
+    if (st == open_circuit) {
+      shunt_open = ADC->ADC_CDR[6];
+    } else {
+      shunt_high = ADC->ADC_CDR[6];
+    }
+  }
+}
 
+void charge_cycle_start() {
+  st = high;
   if (adcSetpoint == VtoADC(0)) {
     BRAKE();
   } else if (load_open < adcSetpoint) {
@@ -91,32 +145,31 @@ void loop() {
   } else if (load_open > adcSetpoint) {
     REVERSE();
   }
-  TRIGGER_ADC();
-  uint32_t load_high = -1;
-  uint32_t shunt_high = -1;
-  get_adc_readings(load_high, shunt_high);
-  delay(1);
-  COAST();
 
-  Serial.println((String)"" + load_open + "," + shunt_open + "," + load_high + "," + shunt_high);
-  delay(1000);
-}
+  load_open = -1;
+  shunt_open = -1;
+  load_high = -1;
+  shunt_high = -1;
 
-void TC0_Handler() {
-  t = 1;
-  TC0->TC_CHANNEL[0].TC_SR;
   TC_Start(TC0, 0);
+  TRIGGER_ADC();
 }
 
-void ADC_Handler() {
-  readADC();
-  uint32_t load = -1;
-  uint32_t shunt = -1;
-  if (CAN_READ_ADC_4) {
-    load = ADC->ADC_CDR[4];
+uint32_t start = 0;
+void loop() {
+  while(Serial.available()) {
+    char c = Serial.read();
+    switch(c) {
+      case 'f': adcSetpoint = ADC_SET_MAX; break;
+      case 'r': adcSetpoint = ADC_SET_MIN; break;
+      case 'b': adcSetpoint = ADC_SET_ZERO; break;
+      case 's': start = millis(); charge_cycle_start(); break;
+      case 'm': TC0_Handler(); break;
+    }
   }
-  if (CAN_READ_ADC_6) {
-    shunt = ADC->ADC_CDR[6];
+  if (load_open != -1 && shunt_open != -1 && load_high != -1 && shunt_high != -1) {
+    Serial.println((String)"" + (millis() - start) + "," + ADCtoV(adcSetpoint) + "," + ADCtoV(load_open) + "," + ADCtoV(shunt_open) + "," + ADCtoV(load_high) + "," + ADCtoV(shunt_high));
+    charge_cycle_start();
   }
 }
 
