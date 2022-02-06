@@ -97,7 +97,7 @@ void loop() {
     }
   }
 
-  float i_max = 0.01;
+  float i_max = 0.8;
   // float duty = 0.5;
   // float Icharge = fabs(ADCtoV(shunt_high)/1000)*duty;
   // float i_charge_mA = fabs(ADCtoV(shunt_high)) * duty;

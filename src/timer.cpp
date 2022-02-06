@@ -16,8 +16,11 @@ void setup_timers(float duty, int frequency) {
 }
 
 void update_timers(float duty, int frequency) {
-  TC_Stop(TC0, 0);
+  // TC_Stop(TC0, 0);
   TC0->TC_CHANNEL[0].TC_RA = RA(duty, RC(frequency));
   TC0->TC_CHANNEL[0].TC_RC = RC(frequency);
-  TC_Start(TC0, 0);
+  if (TC0->TC_CHANNEL[0].TC_CV > TC0->TC_CHANNEL[0].TC_RC) {
+    TC0->TC_CHANNEL[0].TC_CV = 0;
+  }
+  // TC_Start(TC0, 0);
 }
