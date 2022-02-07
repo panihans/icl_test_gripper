@@ -1,5 +1,8 @@
 #include "adc.h"
 
+charging_state st = open_circuit;
+int32_t adcSetpoint = ADC_SET_HZ;
+
 void setup_adc() {
   pinMode(A0, INPUT);
   pinMode(A1, INPUT);
