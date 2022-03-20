@@ -1,15 +1,31 @@
-#include <Arduino.h>
-#include "adc.h"
-#include "timer.h"
-#include "ros.h"
+#include "Arduino.h"
 #include "Command.h"
 #include "Error.h"
 #include "Progress.h"
+#include "adc.h"
+#include "charger.h"
+#include "math.h"
+#include "ros.h"
+#include "timer.h"
 
-class DUE_Bluetooth : public ArduinoHardware
+uint32_t charging_finish_ms;
+uint32_t charging_finish_load_open;
+
+float v_max = 1.3;
+float charge_target = 1;
+
+enum class charging_percentage_status_t
 {
-  public:
-    DUE_Bluetooth():ArduinoHardware(&Serial1, 57600){};
+    maximum,
+    calculatable,
+    unavailable
+};
+charging_percentage_status_t charging_percentage_status = charging_percentage_status_t::unavailable;
+
+// ROS
+class DUE_Bluetooth : public ArduinoHardware {
+public:
+    DUE_Bluetooth() : ArduinoHardware(&Serial1, 57600){};
 };
 ros::NodeHandle_<DUE_Bluetooth> nh;
 
@@ -17,141 +33,201 @@ ros::NodeHandle_<DUE_Bluetooth> nh;
 ieap::Progress progress_msg;
 ieap::Error error_msg;
 ros::Publisher progress("ieap/progress", &progress_msg);
+ros::Publisher done("ieap/done", &progress_msg);
 ros::Publisher error("ieap/error", &error_msg);
 
 // topic subscriber
+#define mmin(a, b) (a < b ? a : b)
+#define mmax(a, b) (a > b ? a : b)
+#define clamp(l, h, val) mmax(l, mmin(h, val))
+void begin_charge(uint32_t setpoint);
+void begin_short();
 char buffer[20] = {0};
-void commandCb(const ieap::Command& msg) {
-  if (strcmp(progress_msg.command, "move") == 0) {
-    adcSetpoint = VtoADC(fmax(-1.2, fmin(msg.target, 1.2)));
-  } else if (strcmp(progress_msg.command, "hold") == 0) {
-    adcSetpoint = ADC_SET_HZ;
-  }
-  strncpy(buffer, ((String)msg.command).c_str(), 20);
-  progress_msg.command = buffer;
-  progress_msg.target = msg.target;
+void commandCb(const ieap::Command &msg) {
+    charge_target = msg.target;
+    if (strcmp(progress_msg.command, "move") == 0) {
+        begin_charge(V_TO_ADC(clamp(-v_max, v_max, v_max * charge_target)));
+    } else if (strcmp(progress_msg.command, "brake") == 0) {
+        begin_short();
+    }
+    strncpy(buffer, ((String)msg.command).c_str(), 20);
+    progress_msg.command = buffer;
+    progress_msg.target = charge_target;
 }
 ros::Subscriber<ieap::Command> command("ieap/command", &commandCb);
 
 void setup() {
-  // put your setup code here, to run once:
-  setup_adc();
-  setup_timers(0.5, 1000);
+    // put your setup code here, to run once:
+    setup_differential_adc_ch4_ch6();
+    nh.initNode();
 
-  nh.initNode();
-  nh.advertise(progress);
-  nh.advertise(error);
-  nh.subscribe(command);
-  Serial.begin(115200);
-  Serial.println("begin");
+    nh.advertise(progress);
+    nh.advertise(error);
+    nh.subscribe(command);
+    Serial.begin(115200);
+    Serial.println("begin");
 }
 
-int32_t load_open = -1;
-int32_t shunt_open = -1;
-int32_t load_high = -1;
-int32_t shunt_high = -1;
-void ADC_Handler() {
-  if (CAN_READ_ADC_4) {
-    if (st == open_circuit) {
-      load_open = ADC->ADC_CDR[4];
-    } else {
-      load_high = ADC->ADC_CDR[4];
-    }
-  }
-  if (CAN_READ_ADC_6) {
-    if (st == open_circuit) {
-      shunt_open = ADC->ADC_CDR[6];
-    } else {
-      shunt_high = ADC->ADC_CDR[6];
-    }
-  }
+void begin_charge(uint32_t setpoint) {
+    charger_status = charger_status_t::charging;
+    charger_setpoint = setpoint;
+    charging_percentage_status = charging_percentage_status_t::unavailable;
+    setup_timer0_ch0(1000, 0.1f);
+    enable_timer0_ch0();
+}
+
+void begin_short() {
+    charger_status = charger_status_t::short_circuit;
+    charging_percentage_status = charging_percentage_status_t::unavailable;
+    setup_timer0_ch0(1000, 0.1f);
+    enable_timer0_ch0();
+}
+
+void begin_measure() {
+    charger_status = charger_status_t::measure_only;
+    setup_timer0_ch0(1, 0.1f);
+    enable_timer0_ch0();
+}
+
+void charger_done() {
+    charging_finish_ms = millis();
+    charging_percentage_status = charging_percentage_status_t::maximum;
+    begin_measure();
 }
 
 void TC0_Handler() {
-  int status = TC0->TC_CHANNEL[0].TC_SR;
-  if (status & TC_SR_CPAS) {
-    COAST();
-    TRIGGER_ADC();
-  }
-  if (status & TC_SR_CPCS) {
-    if (adcSetpoint == ADC_SET_HZ) {
-      COAST();
-    } else if (adcSetpoint == VtoADC(0)) {
-      BRAKE();
-      TRIGGER_ADC();
-    } else {
-      if (load_open < adcSetpoint) {
-        // ocv less than setpoint
-        if (adcSetpoint < 4095/2) {
-          // setpoint negative
-          if (load_open < adcSetpoint - 50) {
-            // ocv less than setpoint - margin
-            FORWARD();
-            TRIGGER_ADC();
-          }
-        } else {
-          // setpoint positive
-          FORWARD();
-          TRIGGER_ADC();
-        }
-      } else if (load_open > adcSetpoint) {
-        // ocv more than setpoint
-        if (adcSetpoint > 4095/2) {
-          // setpoint positive
-          if (load_open > adcSetpoint + 50) {
-            // ocv more than setpoint + margin
-            REVERSE();
-            TRIGGER_ADC();
-          }
-        } else {
-          // setpoint negative
-          REVERSE();
-          TRIGGER_ADC();
-        }
-      }
+    int status = TC0->TC_CHANNEL[0].TC_SR;
+    if (status & TC_SR_CPAS) {
+        pwm_status = pwm_status_t::open_circuit;
+        OPEN_CIRCUIT();
     }
-  }
+    if (status & TC_SR_CPCS) {
+        pwm_status = pwm_status_t::closed_circuit;
+        if (charger_status == charger_status_t::charging) {
+            if (load_open < charger_setpoint) {
+                if (charger_setpoint > V_TO_ADC(0)) {
+                    FORWARD();
+                } else {
+                    charger_done();
+                }
+            } else {
+                if (charger_setpoint < V_TO_ADC(0)) {
+                    REVERSE();
+                } else {
+                    charger_done();
+                }
+            }
+        } else if (charger_status == charger_status_t::short_circuit) {
+            if (load_open >= V_TO_ADC(0.001) || load_open <= V_TO_ADC(-0.001)) {
+                SHORT_CIRCUIT();
+            } else {
+                charger_done();
+            }
+        } else if (charger_status == charger_status_t::measure_only) {
+            // nothing to do here
+        }
+    }
+    TRIGGER_ADC();
 }
 
-uint32_t start = 0;
-uint32_t i = 0;
-void loop() {
-  // while(Serial.available()) {
-  //   char c = Serial.read();
-  //   switch(c) {
-  //     case 'f': adcSetpoint = ADC_SET_MAX; break;
-  //     case 'r': adcSetpoint = ADC_SET_MIN; break;
-  //     case 'b': adcSetpoint = ADC_SET_ZERO; break;
-  //     case 'z': adcSetpoint = ADC_SET_HZ; break;
-  //     // case 's': start = millis(); TC_Start(TC0, 0); break;
-  //     case 'm': TC0_Handler(); break;
-  //   }
-  // }
-
-  float i_max = 0.8;
-
-  float duty = fminf(i_max * fabs(ADC_MAX/(VOUT * (ADC_MAX - 2*shunt_high))), 0.9);
-  update_timers(duty, 1000);
-
-  if (adcSetpoint != ADC_SET_HZ && load_open < adcSetpoint + 50 && load_open > adcSetpoint - 50) {
-    adcSetpoint = ADC_SET_HZ;
-  }
-
-  // Serial.println((String)"" + duty + "," + ADCtoV(shunt_high) + "," + ADCtoV(load_open));'
-  if (adcSetpoint != ADC_SET_HZ && strcmp(progress_msg.command, "move") == 0){
-    if (i > 1000) {
-      progress_msg.position = ADCtoV(load_open);
-      progress.publish(&progress_msg);
-      i = 0;
-    } else {
-      i++;
+void ADC_Handler() {
+    uint32_t status = ADC->ADC_ISR;
+    if (status & ADC_ISR_EOC4) {
+        if (pwm_status == pwm_status_t::open_circuit) {
+            load_open = ADC->ADC_CDR[4];
+        } else {
+            load_closed = ADC->ADC_CDR[4];
+        }
     }
-  }
+    if (status & ADC_ISR_EOC6) {
+        if (pwm_status == pwm_status_t::open_circuit) {
+            shunt_open = ADC->ADC_CDR[6];
+        } else {
+            shunt_closed = ADC->ADC_CDR[6];
+        }
+    }
+}
 
-  nh.spinOnce();
-  Serial.print("i=");
-  Serial.print(i);
-  Serial.print(" ,lo=");
-  Serial.println(load_open);
-  delay(1);
+int i = 0;
+void loop() {
+    // put your main code here, to run repeatedly:
+
+    // float charge_target = 1;
+    //  float v_max = 1.3;
+    while (Serial.available()) {
+        char c = Serial.read();
+        switch (c) {
+        case 'f': {
+            charge_target = 1;
+            begin_charge(V_TO_ADC(v_max * charge_target));
+            break;
+        }
+        case 'r': {
+            charge_target = -1;
+            begin_charge(V_TO_ADC(v_max * charge_target));
+            break;
+        }
+        case 'b': {
+            begin_short();
+            break;
+        }
+        case 's': {
+            charger_done();
+            break;
+        }
+        case 'm': {
+            begin_measure();
+            break;
+        }
+        }
+    }
+    float shunt_resistance = 1000.f;
+    float duty_max = 0.9;
+    float current_limit_mA = 0.5 * pow(10, -3);
+    float voltage_diff = fabs(ADC_TO_V(load_closed)) + fabs(ADC_TO_V(shunt_closed));
+    float duty = fmin(current_limit_mA * (shunt_resistance / voltage_diff), duty_max);
+    update_timer0_ch0_duty(duty);
+
+    float percent = 0;
+    if (charger_status == charger_status_t::charging) {
+        if (charge_target * v_max != 0) {
+            percent = ADC_TO_V(load_open) / (charge_target * v_max);
+        }
+        // progress_msg.position = percent;
+    } else {
+        if (charging_percentage_status == charging_percentage_status_t::maximum) {
+            uint32_t settling_time_ms = 30 * 1000;
+            if (millis() >= charging_finish_ms + settling_time_ms) {
+                charging_finish_load_open = load_open;
+                charging_percentage_status = charging_percentage_status_t::calculatable;
+            }
+            percent = charge_target;
+            // progress_msg.position = percent;
+            // done.publish(&progress_msg);
+        }
+        if (charging_percentage_status == charging_percentage_status_t::calculatable) {
+            percent = ADC_TO_V(load_open) / ADC_TO_V(charging_finish_load_open);
+            // progress_msg.position = percent;
+        }
+    }
+
+    Serial.print(shunt_closed);
+    Serial.print(",");
+    Serial.print(load_open);
+    Serial.print(",");
+    Serial.print(percent);
+    // Serial.print((uint32_t)(percent * 100));
+    Serial.println();
+
+    // if (strcmp(progress_msg.command, "move") == 0) {
+    //     if (i > 1000) {
+    //         progress.publish(&progress_msg);
+    //         i = 0;
+    //     } else {
+    //         i++;
+    //     }
+    // }
+
+    // nh.spinOnce();
+    delay(1);
 }
