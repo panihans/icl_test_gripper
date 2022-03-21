@@ -191,7 +191,7 @@ void loop() {
     float percent = 0;
     if (charger_status == charger_status_t::charging) {
         if (charge_target * v_max != 0) {
-            percent = ADC_TO_V(load_open) / (charge_target * v_max);
+            percent = (ADC_TO_V(load_open) / (charge_target * v_max)) * charge_target;
         }
         // progress_msg.position = percent;
     } else {
@@ -206,7 +206,7 @@ void loop() {
             // done.publish(&progress_msg);
         }
         if (charging_percentage_status == charging_percentage_status_t::calculatable) {
-            percent = ADC_TO_V(load_open) / ADC_TO_V(charging_finish_load_open);
+            percent = (ADC_TO_V(load_open) / ADC_TO_V(charging_finish_load_open)) * charge_target;
             // progress_msg.position = percent;
         }
     }
