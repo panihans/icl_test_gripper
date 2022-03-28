@@ -1,6 +1,6 @@
 #include "Arduino.h"
-#include "Command.h"
-#include "Error.h"
+#include "Done.h"
+#include "Move.h"
 #include "Progress.h"
 #include "adc.h"
 #include "charger.h"
@@ -13,6 +13,7 @@ uint32_t charging_finish_load_open;
 
 float v_max = 1.3;
 float charge_target = 1;
+float charge_speed = 1;
 
 enum class charging_percentage_status_t
 {
@@ -30,11 +31,10 @@ public:
 ros::NodeHandle_<DUE_Bluetooth> nh;
 
 // topic publisher
-ieap::Progress progress_msg;
-ieap::Error error_msg;
-ros::Publisher progress("ieap/progress", &progress_msg);
-ros::Publisher done("ieap/done", &progress_msg);
-ros::Publisher error("ieap/error", &error_msg);
+tehislihas::Progress progress_msg;
+tehislihas::Done done_msg;
+ros::Publisher progress("tehislihas/progress", &progress_msg);
+ros::Publisher done("tehislihas/done", &done_msg);
 
 // topic subscriber
 #define mmin(a, b) (a < b ? a : b)
@@ -42,19 +42,20 @@ ros::Publisher error("ieap/error", &error_msg);
 #define clamp(l, h, val) mmax(l, mmin(h, val))
 void begin_charge(uint32_t setpoint);
 void begin_short();
-char buffer[20] = {0};
-void commandCb(const ieap::Command &msg) {
-    charge_target = msg.target;
-    if (strcmp(progress_msg.command, "move") == 0) {
-        begin_charge(V_TO_ADC(clamp(-v_max, v_max, v_max * charge_target)));
-    } else if (strcmp(progress_msg.command, "brake") == 0) {
+void moveCb(const tehislihas::Move &msg) {
+    charge_target = msg.setpoint;
+    charge_speed = clamp(0.0f, 1.0f, msg.speed);
+    progress_msg.setpoint = charge_target;
+    progress_msg.speed = charge_speed;
+    done_msg.setpoint = charge_target;
+    done_msg.speed = charge_speed;
+    if (charge_target == 0) {
         begin_short();
+    } else {
+        begin_charge(V_TO_ADC(clamp(-v_max, v_max, v_max * charge_target)));
     }
-    strncpy(buffer, ((String)msg.command).c_str(), 20);
-    progress_msg.command = buffer;
-    progress_msg.target = charge_target;
 }
-ros::Subscriber<ieap::Command> command("ieap/command", &commandCb);
+ros::Subscriber<tehislihas::Move> move("tehislihas/move", &moveCb);
 
 void setup() {
     // put your setup code here, to run once:
@@ -62,10 +63,10 @@ void setup() {
     nh.initNode();
 
     nh.advertise(progress);
-    nh.advertise(error);
-    nh.subscribe(command);
-    Serial.begin(115200);
-    Serial.println("begin");
+    nh.advertise(done);
+    nh.subscribe(move);
+    // Serial.begin(115200);
+    // Serial.println("begin");
 }
 
 void begin_charge(uint32_t setpoint) {
@@ -154,36 +155,37 @@ void loop() {
 
     // float charge_target = 1;
     //  float v_max = 1.3;
-    while (Serial.available()) {
-        char c = Serial.read();
-        switch (c) {
-        case 'f': {
-            charge_target = 1;
-            begin_charge(V_TO_ADC(v_max * charge_target));
-            break;
-        }
-        case 'r': {
-            charge_target = -1;
-            begin_charge(V_TO_ADC(v_max * charge_target));
-            break;
-        }
-        case 'b': {
-            begin_short();
-            break;
-        }
-        case 's': {
-            charger_done();
-            break;
-        }
-        case 'm': {
-            begin_measure();
-            break;
-        }
-        }
-    }
+    // while (Serial.available()) {
+    //     char c = Serial.read();
+    //     switch (c) {
+    //     case 'f': {
+    //         charge_target = 1;
+    //         begin_charge(V_TO_ADC(v_max * charge_target));
+    //         break;
+    //     }
+    //     case 'r': {
+    //         charge_target = -1;
+    //         begin_charge(V_TO_ADC(v_max * charge_target));
+    //         break;
+    //     }
+    //     case 'b': {
+    //         begin_short();
+    //         break;
+    //     }
+    //     case 's': {
+    //         charger_done();
+    //         break;
+    //     }
+    //     case 'm': {
+    //         begin_measure();
+    //         break;
+    //     }
+    //     }
+    // }
     float shunt_resistance = 1000.f;
     float duty_max = 0.9;
-    float current_limit_mA = 0.5 * pow(10, -3);
+    float max_current = 1.5 * pow(10, -3);
+    float current_limit_mA = charge_speed * max_current;
     float voltage_diff = fabs(ADC_TO_V(load_closed)) + fabs(ADC_TO_V(shunt_closed));
     float duty = fmin(current_limit_mA * (shunt_resistance / voltage_diff), duty_max);
     update_timer0_ch0_duty(duty);
@@ -191,6 +193,7 @@ void loop() {
     float percent = 0;
     if (charger_status == charger_status_t::charging) {
         if (charge_target * v_max != 0) {
+            // percent = ADC_TO_V(load_open) / ADC_TO_V(v_max);
             percent = (ADC_TO_V(load_open) / (charge_target * v_max)) * charge_target;
         }
         // progress_msg.position = percent;
@@ -202,7 +205,7 @@ void loop() {
                 charging_percentage_status = charging_percentage_status_t::calculatable;
             }
             percent = charge_target;
-            // progress_msg.position = percent;
+            // done_msg.position = percent;
             // done.publish(&progress_msg);
         }
         if (charging_percentage_status == charging_percentage_status_t::calculatable) {
@@ -219,15 +222,15 @@ void loop() {
     // Serial.print((uint32_t)(percent * 100));
     Serial.println();
 
-    // if (strcmp(progress_msg.command, "move") == 0) {
-    //     if (i > 1000) {
-    //         progress.publish(&progress_msg);
-    //         i = 0;
-    //     } else {
-    //         i++;
-    //     }
-    // }
+    if (charger_status == charger_status_t::charging) {
+        if (i > 1000) {
+            // progress.publish(&progress_msg);
+            i = 0;
+        } else {
+            i++;
+        }
+    }
 
-    // nh.spinOnce();
+    nh.spinOnce();
     delay(1);
 }
