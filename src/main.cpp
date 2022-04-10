@@ -214,15 +214,12 @@ void loop() {
         TRIGGER_ADC();
     }
 
-    if (charger_status != charger_status_t::open_circuit) {
-        // update if not in open circuit mode
-        charger_status_msg.shunt_closed = shunt_closed;
-        charger_status_msg.shunt_open = shunt_open;
-        charger_status_msg.load_closed = load_closed;
-        charger_status_msg.load_open = load_open;
-        charger_status_msg.charger_status_code = (uint16_t)charger_status;
-        charger_status_publisher.publish(&charger_status_msg);
-    }
+    charger_status_msg.shunt_closed = shunt_closed;
+    charger_status_msg.shunt_open = shunt_open;
+    charger_status_msg.load_closed = load_closed;
+    charger_status_msg.load_open = load_open;
+    charger_status_msg.charger_status_code = (uint16_t)charger_status;
+    charger_status_publisher.publish(&charger_status_msg);
 
     nh.spinOnce();
     delay(10);
