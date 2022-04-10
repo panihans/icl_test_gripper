@@ -1,5 +1,5 @@
-#ifndef _ROS_tehislihas_Move_h
-#define _ROS_tehislihas_Move_h
+#ifndef _ROS_tehislihas_ChargeCommand_h
+#define _ROS_tehislihas_ChargeCommand_h
 
 #include <stdint.h>
 #include <string.h>
@@ -9,17 +9,17 @@
 namespace tehislihas
 {
 
-  class Move : public ros::Msg
+  class ChargeCommand : public ros::Msg
   {
     public:
       typedef float _setpoint_type;
       _setpoint_type setpoint;
-      typedef float _speed_type;
-      _speed_type speed;
+      typedef float _current_limit_A_type;
+      _current_limit_A_type current_limit_A;
 
-    Move():
+    ChargeCommand():
       setpoint(0),
-      speed(0)
+      current_limit_A(0)
     {
     }
 
@@ -39,13 +39,13 @@ namespace tehislihas
       union {
         float real;
         uint32_t base;
-      } u_speed;
-      u_speed.real = this->speed;
-      *(outbuffer + offset + 0) = (u_speed.base >> (8 * 0)) & 0xFF;
-      *(outbuffer + offset + 1) = (u_speed.base >> (8 * 1)) & 0xFF;
-      *(outbuffer + offset + 2) = (u_speed.base >> (8 * 2)) & 0xFF;
-      *(outbuffer + offset + 3) = (u_speed.base >> (8 * 3)) & 0xFF;
-      offset += sizeof(this->speed);
+      } u_current_limit_A;
+      u_current_limit_A.real = this->current_limit_A;
+      *(outbuffer + offset + 0) = (u_current_limit_A.base >> (8 * 0)) & 0xFF;
+      *(outbuffer + offset + 1) = (u_current_limit_A.base >> (8 * 1)) & 0xFF;
+      *(outbuffer + offset + 2) = (u_current_limit_A.base >> (8 * 2)) & 0xFF;
+      *(outbuffer + offset + 3) = (u_current_limit_A.base >> (8 * 3)) & 0xFF;
+      offset += sizeof(this->current_limit_A);
       return offset;
     }
 
@@ -66,19 +66,19 @@ namespace tehislihas
       union {
         float real;
         uint32_t base;
-      } u_speed;
-      u_speed.base = 0;
-      u_speed.base |= ((uint32_t) (*(inbuffer + offset + 0))) << (8 * 0);
-      u_speed.base |= ((uint32_t) (*(inbuffer + offset + 1))) << (8 * 1);
-      u_speed.base |= ((uint32_t) (*(inbuffer + offset + 2))) << (8 * 2);
-      u_speed.base |= ((uint32_t) (*(inbuffer + offset + 3))) << (8 * 3);
-      this->speed = u_speed.real;
-      offset += sizeof(this->speed);
+      } u_current_limit_A;
+      u_current_limit_A.base = 0;
+      u_current_limit_A.base |= ((uint32_t) (*(inbuffer + offset + 0))) << (8 * 0);
+      u_current_limit_A.base |= ((uint32_t) (*(inbuffer + offset + 1))) << (8 * 1);
+      u_current_limit_A.base |= ((uint32_t) (*(inbuffer + offset + 2))) << (8 * 2);
+      u_current_limit_A.base |= ((uint32_t) (*(inbuffer + offset + 3))) << (8 * 3);
+      this->current_limit_A = u_current_limit_A.real;
+      offset += sizeof(this->current_limit_A);
      return offset;
     }
 
-    virtual const char * getType() override { return "tehislihas/Move"; };
-    virtual const char * getMD5() override { return "d1ed0e1ef102ef5a148ead435262720e"; };
+    virtual const char * getType() override { return "tehislihas/ChargeCommand"; };
+    virtual const char * getMD5() override { return "e02505a4e3fce4a68d3dffe12262a74f"; };
 
   };
 
