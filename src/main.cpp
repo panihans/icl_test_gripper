@@ -1,7 +1,9 @@
 #include "Arduino.h"
+#include "Charge2Command.h"
 #include "ChargeCommand.h"
 #include "ChargerStatus.h"
 #include "MeasureCommand.h"
+#include "ResetCommand.h"
 #include "ShortcircuitCommand.h"
 #include "StopCommand.h"
 #include "adc.h"
@@ -9,13 +11,6 @@
 #include "math.h"
 #include "ros.h"
 #include "timer.h"
-
-// uint32_t charging_finish_ms;
-// uint32_t charging_finish_load_open;
-
-// float v_max = 1.3;
-// float charge_target = 1;
-float charge_speed = 1;
 
 // ROS
 class DUE_Bluetooth : public ArduinoHardware {
@@ -25,34 +20,40 @@ public:
 ros::NodeHandle_<DUE_Bluetooth> nh;
 
 // topic publisher
-tehislihas::ChargeCommand charge_command_msg;
 tehislihas::ChargerStatus charger_status_msg;
-tehislihas::MeasureCommand measure_command_msg;
-tehislihas::ShortcircuitCommand shortcircuit_command_msg;
-tehislihas::StopCommand stop_command_msg;
 ros::Publisher charger_status_publisher("tehislihas/charger", &charger_status_msg);
 
 void charge_command_callback(const tehislihas::ChargeCommand &msg);
+void charge2_command_callback(const tehislihas::Charge2Command &msg);
 void measure_command_callback(const tehislihas::MeasureCommand &msg);
 void shortcircuit_command_callback(const tehislihas::ShortcircuitCommand &msg);
 void stop_command_callback(const tehislihas::StopCommand &msg);
+void reset_command_callback(const tehislihas::ResetCommand &msg);
 
 ros::Subscriber<tehislihas::ChargeCommand> charge_command_subscriber("tehislihas/charge", &charge_command_callback);
+ros::Subscriber<tehislihas::Charge2Command> charge2_command_subscriber("tehislihas/charge2", &charge2_command_callback);
 ros::Subscriber<tehislihas::MeasureCommand> measure_command_subscriber("tehislihas/measure", &measure_command_callback);
 ros::Subscriber<tehislihas::ShortcircuitCommand> shortcircuit_command_subscriber("tehislihas/short",
                                                                                  &shortcircuit_command_callback);
 ros::Subscriber<tehislihas::StopCommand> stop_command_subscriber("tehislihas/stop", &stop_command_callback);
+ros::Subscriber<tehislihas::ResetCommand> reset_command_subscriber("tehislihas/reset", &reset_command_callback);
 
 void setup() {
     // put your setup code here, to run once:
     setup_differential_adc_ch4_ch6();
     nh.initNode();
 
+    // publisher
     nh.advertise(charger_status_publisher);
+    // subscriber
     nh.subscribe(charge_command_subscriber);
+    nh.subscribe(charge2_command_subscriber);
     nh.subscribe(measure_command_subscriber);
     nh.subscribe(shortcircuit_command_subscriber);
     nh.subscribe(stop_command_subscriber);
+    nh.subscribe(reset_command_subscriber);
+
+    nh.negotiateTopics();
 }
 
 float duty = 0.0f;
@@ -60,34 +61,12 @@ float duty = 0.0f;
 #define DUTY_MAX 0.9f
 #define DUTY_MIN 0.1f
 
-void begin_charge(uint32_t setpoint) {
-    charger_status = charger_status_t::charging;
-    charger_setpoint = setpoint;
-    duty = DUTY_MAX;
-    setup_timer0_ch0(1000, duty);
-    enable_timer0_ch0();
-}
-
-void begin_short() {
-    charger_status = charger_status_t::short_circuit;
-    duty = DUTY_100;
-    setup_timer0_ch0(1000, duty);
-    enable_timer0_ch0();
-}
-
-void begin_measure() {
-    charger_status = charger_status_t::measure_only;
-    duty = DUTY_100;
-    setup_timer0_ch0(1, duty);
-    enable_timer0_ch0();
-}
-
 void charger_done() {
-    charger_status = charger_status_t::open_circuit;
-    duty = DUTY_100;
     disable_timer0_ch0();
+    charger_status = charger_status_t::open_circuit;
 }
 
+volatile float charge_accumulator = 0;
 void TC0_Handler() {
     // changes charging direction
     // triggers adc
@@ -99,14 +78,18 @@ void TC0_Handler() {
         }
         if (status & TC_SR_CPCS) {
             pwm_status = pwm_status_t::closed_circuit;
-            if (load_open < charger_setpoint) {
-                if (charger_setpoint > V_TO_ADC(0)) {
+            if (charger_setpoint_type == setpoint_type_t::voltage) {
+                if (load_open < charger_voltage_setpoint - (V_TO_ADC(0.01) - V_TO_ADC(0))) {
                     FORWARD();
+                } else if (load_open > charger_voltage_setpoint + (V_TO_ADC(0.01) - V_TO_ADC(0))) {
+                    REVERSE();
                 } else {
                     charger_done();
                 }
             } else {
-                if (charger_setpoint < V_TO_ADC(0)) {
+                if (charge_accumulator < (charger_current_setpoint - 20)) {
+                    FORWARD();
+                } else if (charge_accumulator > (charger_current_setpoint + 20)) {
                     REVERSE();
                 } else {
                     charger_done();
@@ -126,7 +109,6 @@ void TC0_Handler() {
     TRIGGER_ADC();
 }
 
-float charge_accumulator = 0;
 void ADC_Handler() {
     uint32_t status = ADC->ADC_ISR;
     if (status & ADC_ISR_EOC4) {
@@ -151,20 +133,49 @@ void ADC_Handler() {
 #define clamp(l, h, val) mmax(l, mmin(h, val))
 float current_limit_A = 0;
 void charge_command_callback(const tehislihas::ChargeCommand &msg) {
+    charger_done();
+    charger_setpoint_type = setpoint_type_t::voltage;
     current_limit_A = msg.current_limit_A;
-    begin_charge(V_TO_ADC(clamp(V_MIN, V_MAX, msg.setpoint)));
+    charger_status = charger_status_t::charging;
+    charger_voltage_setpoint = V_TO_ADC(clamp(V_MIN, V_MAX, msg.setpoint));
+    duty = DUTY_MAX;
+    setup_timer0_ch0(1000, duty);
+    enable_timer0_ch0();
+}
+
+void charge2_command_callback(const tehislihas::Charge2Command &msg) {
+    charger_done();
+    charger_setpoint_type = setpoint_type_t::charge;
+    current_limit_A = msg.current_limit_A;
+    charger_status = charger_status_t::charging;
+    charger_current_setpoint = msg.setpoint;
+    duty = DUTY_MAX;
+    setup_timer0_ch0(1000, duty);
+    enable_timer0_ch0();
 }
 
 void measure_command_callback(const tehislihas::MeasureCommand &msg) {
-    begin_measure();
+    charger_done();
+    charger_status = charger_status_t::measure_only;
+    duty = DUTY_100;
+    setup_timer0_ch0(1, duty);
+    enable_timer0_ch0();
 }
 
 void shortcircuit_command_callback(const tehislihas::ShortcircuitCommand &msg) {
-    begin_short();
+    charger_done();
+    charger_status = charger_status_t::short_circuit;
+    duty = DUTY_100;
+    setup_timer0_ch0(1000, duty);
+    enable_timer0_ch0();
 }
 
 void stop_command_callback(const tehislihas::StopCommand &msg) {
     charger_done();
+}
+
+void reset_command_callback(const tehislihas::ResetCommand &msg) {
+    charge_accumulator = 0;
 }
 
 int i = 0;

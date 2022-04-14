@@ -8,9 +8,9 @@
 #define V_MAX 1.3
 #define V_MIN -1.3
 
-extern uint32_t load_open;
-extern uint32_t shunt_open;
-extern uint32_t load_closed;
-extern uint32_t shunt_closed;
+extern volatile uint32_t load_open;
+extern volatile uint32_t shunt_open;
+extern volatile uint32_t load_closed;
+extern volatile uint32_t shunt_closed;
 
 void setup_differential_adc_ch4_ch6();

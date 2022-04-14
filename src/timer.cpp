@@ -1,6 +1,6 @@
 #include "timer.h"
 
-pwm_status_t pwm_status = pwm_status_t::open_circuit;
+volatile pwm_status_t pwm_status = pwm_status_t::open_circuit;
 
 void setup_timer(Tc *timer, uint32_t channel, uint32_t compa, uint32_t compc) {
     timer->TC_CHANNEL[channel].TC_CMR = TC_CMR_TCCLKS_TIMER_CLOCK1 | TC_CMR_WAVSEL_UP_RC | TC_CMR_WAVE;

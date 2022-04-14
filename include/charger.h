@@ -31,5 +31,14 @@ enum class charger_status_t
     short_circuit,
     measure_only
 };
-extern charger_status_t charger_status;
-extern uint32_t charger_setpoint;
+extern volatile charger_status_t charger_status;
+
+enum class setpoint_type_t
+{
+    voltage,
+    charge
+};
+extern volatile setpoint_type_t charger_setpoint_type;
+
+extern volatile uint32_t charger_voltage_setpoint;
+extern volatile float charger_current_setpoint;

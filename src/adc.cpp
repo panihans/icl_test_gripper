@@ -1,10 +1,10 @@
 #include "adc.h"
 #include "timer.h"
 
-uint32_t load_open = 0;
-uint32_t shunt_open = 0;
-uint32_t load_closed = 0;
-uint32_t shunt_closed = 0;
+volatile uint32_t load_open = 0;
+volatile uint32_t shunt_open = 0;
+volatile uint32_t load_closed = 0;
+volatile uint32_t shunt_closed = 0;
 
 void setup_differential_adc_ch4_ch6() {
     pinMode(A0, INPUT);
