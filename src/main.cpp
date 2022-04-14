@@ -37,10 +37,8 @@ void measure_command_callback(const tehislihas::MeasureCommand &msg);
 void shortcircuit_command_callback(const tehislihas::ShortcircuitCommand &msg);
 void stop_command_callback(const tehislihas::StopCommand &msg);
 
-ros::Subscriber<tehislihas::ChargeCommand> charge_command_subscriber("tehislihas/charge",
-                                                                     &charge_command_callback);
-ros::Subscriber<tehislihas::MeasureCommand> measure_command_subscriber("tehislihas/measure",
-                                                                       &measure_command_callback);
+ros::Subscriber<tehislihas::ChargeCommand> charge_command_subscriber("tehislihas/charge", &charge_command_callback);
+ros::Subscriber<tehislihas::MeasureCommand> measure_command_subscriber("tehislihas/measure", &measure_command_callback);
 ros::Subscriber<tehislihas::ShortcircuitCommand> shortcircuit_command_subscriber("tehislihas/short",
                                                                                  &shortcircuit_command_callback);
 ros::Subscriber<tehislihas::StopCommand> stop_command_subscriber("tehislihas/stop", &stop_command_callback);
@@ -55,34 +53,38 @@ void setup() {
     nh.subscribe(measure_command_subscriber);
     nh.subscribe(shortcircuit_command_subscriber);
     nh.subscribe(stop_command_subscriber);
-    // Serial.begin(115200);
-    // Serial.println("begin");
 }
+
+float duty = 0.0f;
+#define DUTY_100 1
+#define DUTY_MAX 0.9f
+#define DUTY_MIN 0.1f
 
 void begin_charge(uint32_t setpoint) {
     charger_status = charger_status_t::charging;
     charger_setpoint = setpoint;
-    setup_timer0_ch0(1000, 0.1f);
+    duty = DUTY_MAX;
+    setup_timer0_ch0(1000, duty);
     enable_timer0_ch0();
 }
 
 void begin_short() {
     charger_status = charger_status_t::short_circuit;
-    disable_timer0_ch0();
-    pwm_status = pwm_status_t::closed_circuit;
-    SHORT_CIRCUIT();
-    // setup_timer0_ch0(1000, 0.1f);
-    // enable_timer0_ch0();
+    duty = DUTY_100;
+    setup_timer0_ch0(1000, duty);
+    enable_timer0_ch0();
 }
 
 void begin_measure() {
     charger_status = charger_status_t::measure_only;
-    setup_timer0_ch0(1, 0.1f);
+    duty = DUTY_100;
+    setup_timer0_ch0(1, duty);
     enable_timer0_ch0();
 }
 
 void charger_done() {
     charger_status = charger_status_t::open_circuit;
+    duty = DUTY_100;
     disable_timer0_ch0();
 }
 
@@ -90,13 +92,13 @@ void TC0_Handler() {
     // changes charging direction
     // triggers adc
     int status = TC0->TC_CHANNEL[0].TC_SR;
-    if (status & TC_SR_CPAS) {
-        pwm_status = pwm_status_t::open_circuit;
-        OPEN_CIRCUIT();
-    }
-    if (status & TC_SR_CPCS) {
-        pwm_status = pwm_status_t::closed_circuit;
-        if (charger_status == charger_status_t::charging) {
+    if (charger_status == charger_status_t::charging) {
+        if (status & TC_SR_CPAS) {
+            pwm_status = pwm_status_t::open_circuit;
+            OPEN_CIRCUIT();
+        }
+        if (status & TC_SR_CPCS) {
+            pwm_status = pwm_status_t::closed_circuit;
             if (load_open < charger_setpoint) {
                 if (charger_setpoint > V_TO_ADC(0)) {
                     FORWARD();
@@ -110,19 +112,21 @@ void TC0_Handler() {
                     charger_done();
                 }
             }
-        } else if (charger_status == charger_status_t::short_circuit) {
-            // if (load_open >= V_TO_ADC(0.001) || load_open <= V_TO_ADC(-0.001)) {
-            //     SHORT_CIRCUIT();
-            // } else {
-            //     charger_done();
-            // }
-        } else if (charger_status == charger_status_t::measure_only) {
-            // nothing to do here
         }
+    } else if (charger_status == charger_status_t::short_circuit) {
+        pwm_status = pwm_status_t::closed_circuit;
+        SHORT_CIRCUIT();
+    } else if (charger_status == charger_status_t::measure_only) {
+        pwm_status = pwm_status_t::open_circuit;
+        OPEN_CIRCUIT();
+    } else if (charger_status == charger_status_t::open_circuit) {
+        pwm_status = pwm_status_t::open_circuit;
+        OPEN_CIRCUIT();
     }
     TRIGGER_ADC();
 }
 
+float charge_accumulator = 0;
 void ADC_Handler() {
     uint32_t status = ADC->ADC_ISR;
     if (status & ADC_ISR_EOC4) {
@@ -137,6 +141,7 @@ void ADC_Handler() {
             shunt_open = ADC->ADC_CDR[6];
         } else {
             shunt_closed = ADC->ADC_CDR[6];
+            charge_accumulator += ADC_TO_V(shunt_closed) * duty;
         }
     }
 }
@@ -162,65 +167,30 @@ void stop_command_callback(const tehislihas::StopCommand &msg) {
     charger_done();
 }
 
+int i = 0;
 void loop() {
     // put your main code here, to run repeatedly:
-
-    // float charge_target = 1;
-    //  float v_max = 1.3;
-    // while (Serial.available()) {
-    //     char c = Serial.read();
-    //     switch (c) {
-    //     case 'f': {
-    //         charge_target = 1;
-    //         begin_charge(V_TO_ADC(v_max * charge_target));
-    //         break;
-    //     }
-    //     case 'r': {
-    //         charge_target = -1;
-    //         begin_charge(V_TO_ADC(v_max * charge_target));
-    //         break;
-    //     }
-    //     case 'b': {
-    //         begin_short();
-    //         break;
-    //     }
-    //     case 's': {
-    //         charger_done();
-    //         break;
-    //     }
-    //     case 'm': {
-    //         begin_measure();
-    //         break;
-    //     }
-    //     }
-    // }
-    // Serial.print(shunt_closed);
-    // Serial.print(",");
-    // Serial.print(load_open);
-    // Serial.print(",");
-    // Serial.print(percent);
-    // Serial.print((uint32_t)(percent * 100));
-    // Serial.println();
-
     if (charger_status == charger_status_t::charging) {
-        // calculate timer 
+        // calculate pwm duty
         float shunt_resistance = 1000.f;
-        float duty_max = 0.9;
         float voltage_diff = fabs(ADC_TO_V(load_closed)) + fabs(ADC_TO_V(shunt_closed));
-        float duty = fmin(current_limit_A * (shunt_resistance / voltage_diff), duty_max);
+        duty = clamp(DUTY_MIN, DUTY_MAX, current_limit_A * (shunt_resistance / voltage_diff));
         update_timer0_ch0_duty(duty);
-    } else if (charger_status == charger_status_t::short_circuit) {
-        // trigger adc without pwm
-        TRIGGER_ADC();
     }
 
-    charger_status_msg.shunt_closed = shunt_closed;
-    charger_status_msg.shunt_open = shunt_open;
-    charger_status_msg.load_closed = load_closed;
-    charger_status_msg.load_open = load_open;
-    charger_status_msg.charger_status_code = (uint16_t)charger_status;
-    charger_status_publisher.publish(&charger_status_msg);
+    if (i >= 100) {
+        i = 0;
+        charger_status_msg.shunt_closed = shunt_closed;
+        charger_status_msg.shunt_open = shunt_open;
+        charger_status_msg.load_closed = load_closed;
+        charger_status_msg.load_open = load_open;
+        charger_status_msg.charger_status_code = (uint16_t)charger_status;
+        charger_status_msg.charge_accumulator = charge_accumulator;
+        charger_status_publisher.publish(&charger_status_msg);
+    } else {
+        i++;
+    }
 
     nh.spinOnce();
-    delay(10);
+    delay(1);
 }

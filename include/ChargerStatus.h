@@ -22,13 +22,16 @@ namespace tehislihas
       _load_closed_type load_closed;
       typedef float _load_open_type;
       _load_open_type load_open;
+      typedef float _charge_accumulator_type;
+      _charge_accumulator_type charge_accumulator;
 
     ChargerStatus():
       charger_status_code(0),
       shunt_closed(0),
       shunt_open(0),
       load_closed(0),
-      load_open(0)
+      load_open(0),
+      charge_accumulator(0)
     {
     }
 
@@ -78,6 +81,16 @@ namespace tehislihas
       *(outbuffer + offset + 2) = (u_load_open.base >> (8 * 2)) & 0xFF;
       *(outbuffer + offset + 3) = (u_load_open.base >> (8 * 3)) & 0xFF;
       offset += sizeof(this->load_open);
+      union {
+        float real;
+        uint32_t base;
+      } u_charge_accumulator;
+      u_charge_accumulator.real = this->charge_accumulator;
+      *(outbuffer + offset + 0) = (u_charge_accumulator.base >> (8 * 0)) & 0xFF;
+      *(outbuffer + offset + 1) = (u_charge_accumulator.base >> (8 * 1)) & 0xFF;
+      *(outbuffer + offset + 2) = (u_charge_accumulator.base >> (8 * 2)) & 0xFF;
+      *(outbuffer + offset + 3) = (u_charge_accumulator.base >> (8 * 3)) & 0xFF;
+      offset += sizeof(this->charge_accumulator);
       return offset;
     }
 
@@ -131,11 +144,22 @@ namespace tehislihas
       u_load_open.base |= ((uint32_t) (*(inbuffer + offset + 3))) << (8 * 3);
       this->load_open = u_load_open.real;
       offset += sizeof(this->load_open);
+      union {
+        float real;
+        uint32_t base;
+      } u_charge_accumulator;
+      u_charge_accumulator.base = 0;
+      u_charge_accumulator.base |= ((uint32_t) (*(inbuffer + offset + 0))) << (8 * 0);
+      u_charge_accumulator.base |= ((uint32_t) (*(inbuffer + offset + 1))) << (8 * 1);
+      u_charge_accumulator.base |= ((uint32_t) (*(inbuffer + offset + 2))) << (8 * 2);
+      u_charge_accumulator.base |= ((uint32_t) (*(inbuffer + offset + 3))) << (8 * 3);
+      this->charge_accumulator = u_charge_accumulator.real;
+      offset += sizeof(this->charge_accumulator);
      return offset;
     }
 
     virtual const char * getType() override { return "tehislihas/ChargerStatus"; };
-    virtual const char * getMD5() override { return "41398ad683cb1ca6acde23ee67a77fcb"; };
+    virtual const char * getMD5() override { return "4edfeb77396e43d517ccee29dce713e4"; };
 
   };
 
