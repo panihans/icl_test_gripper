@@ -1,84 +1,108 @@
-#ifndef _ROS_tehislihas_ChargeCommand_h
-#define _ROS_tehislihas_ChargeCommand_h
+#ifndef _ROS_am_soft_grip_msgs_ChargeCommand_h
+#define _ROS_am_soft_grip_msgs_ChargeCommand_h
 
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include "ros/msg.h"
+#include "ros/time.h"
 
-namespace tehislihas
+namespace am_soft_grip_msgs
 {
 
   class ChargeCommand : public ros::Msg
   {
     public:
-      typedef float _setpoint_type;
-      _setpoint_type setpoint;
-      typedef float _current_limit_A_type;
-      _current_limit_A_type current_limit_A;
+      typedef ros::Time _sent_type;
+      _sent_type sent;
+      typedef float _icl_target_voltage_type;
+      _icl_target_voltage_type icl_target_voltage;
+      typedef float _icl_current_limit_type;
+      _icl_current_limit_type icl_current_limit;
 
     ChargeCommand():
-      setpoint(0),
-      current_limit_A(0)
+      sent(),
+      icl_target_voltage(0),
+      icl_current_limit(0)
     {
     }
 
     virtual int serialize(unsigned char *outbuffer) const override
     {
       int offset = 0;
+      *(outbuffer + offset + 0) = (this->sent.sec >> (8 * 0)) & 0xFF;
+      *(outbuffer + offset + 1) = (this->sent.sec >> (8 * 1)) & 0xFF;
+      *(outbuffer + offset + 2) = (this->sent.sec >> (8 * 2)) & 0xFF;
+      *(outbuffer + offset + 3) = (this->sent.sec >> (8 * 3)) & 0xFF;
+      offset += sizeof(this->sent.sec);
+      *(outbuffer + offset + 0) = (this->sent.nsec >> (8 * 0)) & 0xFF;
+      *(outbuffer + offset + 1) = (this->sent.nsec >> (8 * 1)) & 0xFF;
+      *(outbuffer + offset + 2) = (this->sent.nsec >> (8 * 2)) & 0xFF;
+      *(outbuffer + offset + 3) = (this->sent.nsec >> (8 * 3)) & 0xFF;
+      offset += sizeof(this->sent.nsec);
       union {
         float real;
         uint32_t base;
-      } u_setpoint;
-      u_setpoint.real = this->setpoint;
-      *(outbuffer + offset + 0) = (u_setpoint.base >> (8 * 0)) & 0xFF;
-      *(outbuffer + offset + 1) = (u_setpoint.base >> (8 * 1)) & 0xFF;
-      *(outbuffer + offset + 2) = (u_setpoint.base >> (8 * 2)) & 0xFF;
-      *(outbuffer + offset + 3) = (u_setpoint.base >> (8 * 3)) & 0xFF;
-      offset += sizeof(this->setpoint);
+      } u_icl_target_voltage;
+      u_icl_target_voltage.real = this->icl_target_voltage;
+      *(outbuffer + offset + 0) = (u_icl_target_voltage.base >> (8 * 0)) & 0xFF;
+      *(outbuffer + offset + 1) = (u_icl_target_voltage.base >> (8 * 1)) & 0xFF;
+      *(outbuffer + offset + 2) = (u_icl_target_voltage.base >> (8 * 2)) & 0xFF;
+      *(outbuffer + offset + 3) = (u_icl_target_voltage.base >> (8 * 3)) & 0xFF;
+      offset += sizeof(this->icl_target_voltage);
       union {
         float real;
         uint32_t base;
-      } u_current_limit_A;
-      u_current_limit_A.real = this->current_limit_A;
-      *(outbuffer + offset + 0) = (u_current_limit_A.base >> (8 * 0)) & 0xFF;
-      *(outbuffer + offset + 1) = (u_current_limit_A.base >> (8 * 1)) & 0xFF;
-      *(outbuffer + offset + 2) = (u_current_limit_A.base >> (8 * 2)) & 0xFF;
-      *(outbuffer + offset + 3) = (u_current_limit_A.base >> (8 * 3)) & 0xFF;
-      offset += sizeof(this->current_limit_A);
+      } u_icl_current_limit;
+      u_icl_current_limit.real = this->icl_current_limit;
+      *(outbuffer + offset + 0) = (u_icl_current_limit.base >> (8 * 0)) & 0xFF;
+      *(outbuffer + offset + 1) = (u_icl_current_limit.base >> (8 * 1)) & 0xFF;
+      *(outbuffer + offset + 2) = (u_icl_current_limit.base >> (8 * 2)) & 0xFF;
+      *(outbuffer + offset + 3) = (u_icl_current_limit.base >> (8 * 3)) & 0xFF;
+      offset += sizeof(this->icl_current_limit);
       return offset;
     }
 
     virtual int deserialize(unsigned char *inbuffer) override
     {
       int offset = 0;
+      this->sent.sec =  ((uint32_t) (*(inbuffer + offset)));
+      this->sent.sec |= ((uint32_t) (*(inbuffer + offset + 1))) << (8 * 1);
+      this->sent.sec |= ((uint32_t) (*(inbuffer + offset + 2))) << (8 * 2);
+      this->sent.sec |= ((uint32_t) (*(inbuffer + offset + 3))) << (8 * 3);
+      offset += sizeof(this->sent.sec);
+      this->sent.nsec =  ((uint32_t) (*(inbuffer + offset)));
+      this->sent.nsec |= ((uint32_t) (*(inbuffer + offset + 1))) << (8 * 1);
+      this->sent.nsec |= ((uint32_t) (*(inbuffer + offset + 2))) << (8 * 2);
+      this->sent.nsec |= ((uint32_t) (*(inbuffer + offset + 3))) << (8 * 3);
+      offset += sizeof(this->sent.nsec);
       union {
         float real;
         uint32_t base;
-      } u_setpoint;
-      u_setpoint.base = 0;
-      u_setpoint.base |= ((uint32_t) (*(inbuffer + offset + 0))) << (8 * 0);
-      u_setpoint.base |= ((uint32_t) (*(inbuffer + offset + 1))) << (8 * 1);
-      u_setpoint.base |= ((uint32_t) (*(inbuffer + offset + 2))) << (8 * 2);
-      u_setpoint.base |= ((uint32_t) (*(inbuffer + offset + 3))) << (8 * 3);
-      this->setpoint = u_setpoint.real;
-      offset += sizeof(this->setpoint);
+      } u_icl_target_voltage;
+      u_icl_target_voltage.base = 0;
+      u_icl_target_voltage.base |= ((uint32_t) (*(inbuffer + offset + 0))) << (8 * 0);
+      u_icl_target_voltage.base |= ((uint32_t) (*(inbuffer + offset + 1))) << (8 * 1);
+      u_icl_target_voltage.base |= ((uint32_t) (*(inbuffer + offset + 2))) << (8 * 2);
+      u_icl_target_voltage.base |= ((uint32_t) (*(inbuffer + offset + 3))) << (8 * 3);
+      this->icl_target_voltage = u_icl_target_voltage.real;
+      offset += sizeof(this->icl_target_voltage);
       union {
         float real;
         uint32_t base;
-      } u_current_limit_A;
-      u_current_limit_A.base = 0;
-      u_current_limit_A.base |= ((uint32_t) (*(inbuffer + offset + 0))) << (8 * 0);
-      u_current_limit_A.base |= ((uint32_t) (*(inbuffer + offset + 1))) << (8 * 1);
-      u_current_limit_A.base |= ((uint32_t) (*(inbuffer + offset + 2))) << (8 * 2);
-      u_current_limit_A.base |= ((uint32_t) (*(inbuffer + offset + 3))) << (8 * 3);
-      this->current_limit_A = u_current_limit_A.real;
-      offset += sizeof(this->current_limit_A);
+      } u_icl_current_limit;
+      u_icl_current_limit.base = 0;
+      u_icl_current_limit.base |= ((uint32_t) (*(inbuffer + offset + 0))) << (8 * 0);
+      u_icl_current_limit.base |= ((uint32_t) (*(inbuffer + offset + 1))) << (8 * 1);
+      u_icl_current_limit.base |= ((uint32_t) (*(inbuffer + offset + 2))) << (8 * 2);
+      u_icl_current_limit.base |= ((uint32_t) (*(inbuffer + offset + 3))) << (8 * 3);
+      this->icl_current_limit = u_icl_current_limit.real;
+      offset += sizeof(this->icl_current_limit);
      return offset;
     }
 
-    virtual const char * getType() override { return "tehislihas/ChargeCommand"; };
-    virtual const char * getMD5() override { return "e02505a4e3fce4a68d3dffe12262a74f"; };
+    virtual const char * getType() override { return "am_soft_grip_msgs/ChargeCommand"; };
+    virtual const char * getMD5() override { return "bb51eeb233458673b8ea9bd6fa833dbd"; };
 
   };
 

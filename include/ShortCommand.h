@@ -1,5 +1,5 @@
-#ifndef _ROS_am_soft_grip_msgs_ResetCommand_h
-#define _ROS_am_soft_grip_msgs_ResetCommand_h
+#ifndef _ROS_am_soft_grip_msgs_ShortCommand_h
+#define _ROS_am_soft_grip_msgs_ShortCommand_h
 
 #include <stdint.h>
 #include <string.h>
@@ -10,13 +10,13 @@
 namespace am_soft_grip_msgs
 {
 
-  class ResetCommand : public ros::Msg
+  class ShortCommand : public ros::Msg
   {
     public:
       typedef ros::Time _sent_type;
       _sent_type sent;
 
-    ResetCommand():
+    ShortCommand():
       sent()
     {
     }
@@ -53,7 +53,7 @@ namespace am_soft_grip_msgs
      return offset;
     }
 
-    virtual const char * getType() override { return "am_soft_grip_msgs/ResetCommand"; };
+    virtual const char * getType() override { return "am_soft_grip_msgs/ShortCommand"; };
     virtual const char * getMD5() override { return "0fd60630ead3e0cd3941d3d853e26a8c"; };
 
   };
