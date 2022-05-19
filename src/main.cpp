@@ -146,7 +146,7 @@ void measure_callback(const am_soft_grip_msgs::MeasureCommand &msg) {
     last_cmd_received = msg.sent;
     charger_status = charger_status_t::measure_only;
     duty = DUTY_100;
-    setup_timer0_ch0(1, duty);
+    setup_timer0_ch0(1000, duty);
     enable_timer0_ch0();
 }
 
@@ -175,7 +175,7 @@ void loop() {
     if (charger_status == charger_status_t::charging) {
         // calculate pwm duty
         float shunt_resistance = 1000.f;
-        float shunt_v_abs = fabs(ADC_TO_V(currentMeasurement.shunt1.closed));
+        float shunt_v_abs = fabs(ADC_TO_V(currentMeasurement.shunt1.closed) + ADC_TO_V(currentMeasurement.shunt2.closed));
         duty = clamp(DUTY_MIN, DUTY_MAX, current_limit_A * (shunt_resistance / shunt_v_abs));
         update_timer0_ch0_duty(duty);
     }
