@@ -12,6 +12,7 @@ void setup_timer(Tc *timer, uint32_t channel, uint32_t compa, uint32_t compc) {
 
 uint32_t current_frequency = 0;
 void setup_timer0_ch0(uint32_t frequency, float duty) {
+    // setup timer with given frequency and duty
     current_frequency = frequency;
     PMC->PMC_PCER0 |= PMC_PCER0_PID27;
     setup_timer(TC0, 0, RA(duty, RC(frequency)), RC(frequency));
@@ -28,5 +29,6 @@ void disable_timer0_ch0() {
 }
 
 void update_timer0_ch0_duty(float duty) {
+    // update timer duty
     TC0->TC_CHANNEL[0].TC_RA = RA(duty, RC(current_frequency));
 }

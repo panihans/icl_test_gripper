@@ -11,10 +11,10 @@
 #include "ros.h"
 #include "timer.h"
 
-// ROS
+// ROS use Serial1 
 class DUE_Bluetooth : public ArduinoHardware {
 public:
-    DUE_Bluetooth() : ArduinoHardware(&Serial, 57600){};
+    DUE_Bluetooth() : ArduinoHardware(&Serial1, 57600){};
 };
 ros::NodeHandle_<DUE_Bluetooth> nh;
 
@@ -35,8 +35,9 @@ ros::Subscriber<am_soft_grip_msgs::StopCommand> stop_subscriber("/am_act/stop", 
 ros::Subscriber<am_soft_grip_msgs::ResetCommand> reset_subscriber("/am_act/reset", &reset_callback);
 
 void setup() {
-    // put your setup code here, to run once:
+    // setup adc
     setup_differential_adc_ch2_ch4_ch6();
+    // init ros node
     nh.initNode();
 
     // publisher
@@ -131,6 +132,7 @@ void ADC_Handler() {
 float current_limit_A = 0;
 ros::Time last_cmd_received;
 void charge_callback(const am_soft_grip_msgs::ChargeCommand &msg) {
+    // rosserial charge command callback
     charger_done();
     last_cmd_received = msg.sent;
     current_limit_A = msg.icl_current_limit;
@@ -142,6 +144,7 @@ void charge_callback(const am_soft_grip_msgs::ChargeCommand &msg) {
 }
 
 void measure_callback(const am_soft_grip_msgs::MeasureCommand &msg) {
+    // rosserial measure command callback
     charger_done();
     last_cmd_received = msg.sent;
     charger_status = charger_status_t::measure_only;
@@ -151,6 +154,7 @@ void measure_callback(const am_soft_grip_msgs::MeasureCommand &msg) {
 }
 
 void short_callback(const am_soft_grip_msgs::ShortCommand &msg) {
+    // rosserial short circuit command callback
     charger_done();
     last_cmd_received = msg.sent;
     charger_status = charger_status_t::short_circuit;
@@ -160,18 +164,20 @@ void short_callback(const am_soft_grip_msgs::ShortCommand &msg) {
 }
 
 void stop_callback(const am_soft_grip_msgs::StopCommand &msg) {
+    // rosserial stop command callback
     charger_done();
     last_cmd_received = msg.sent;
 }
 
 void reset_callback(const am_soft_grip_msgs::ResetCommand &msg) {
+    // rosserial reset command callback
     last_cmd_received = msg.sent;
     charge_accumulator = 0;
 }
 
 int i = 0;
 void loop() {
-    // put your main code here, to run repeatedly:
+    // update pwm when charging
     if (charger_status == charger_status_t::charging) {
         // calculate pwm duty
         float shunt_resistance = 1000.f;
@@ -180,18 +186,17 @@ void loop() {
         update_timer0_ch0_duty(duty);
     }
 
-    if (i >= 100) {
-        i = 0;
+    // send feedback about every ~100ms
+    if (millis() - i >= 100) {
+        i = millis();
         feedback_msg.icl_charging_voltage = ADC_TO_V(currentMeasurement.load.closed);
         feedback_msg.icl_open_circuit_voltage = ADC_TO_V(currentMeasurement.load.open);
         feedback_msg.icl_coulomb_counter = charge_accumulator;
         feedback_msg.actuator_state = (uint8_t)charger_status;
         feedback_msg.last_command = last_cmd_received;
         feedback_publisher.publish(&feedback_msg);
-    } else {
-        i++;
     }
 
+    // update node
     nh.spinOnce();
-    delay(1);
 }

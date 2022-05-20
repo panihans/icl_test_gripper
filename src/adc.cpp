@@ -4,10 +4,13 @@
 CircuitMeasure currentMeasurement = CircuitMeasure();
 
 void setup_differential_adc_ch2_ch4_ch6() {
+    // setup adc pins A0,A1,A2,A3,A4,A5,A6
     pinMode(A0, INPUT);
     pinMode(A1, INPUT);
     pinMode(A2, INPUT);
     pinMode(A3, INPUT);
+    pinMode(A4, INPUT);
+    pinMode(A5, INPUT);
 
     PMC->PMC_PCER1 |= PMC_PCER1_PID37;
     ADC->ADC_CR = ADC_CR_SWRST;
